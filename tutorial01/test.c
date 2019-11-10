@@ -57,8 +57,20 @@ static void test_parse_root_not_singular() {
     EXPECT_EQ_INT(LEPT_NULL, lept_get_type(&v));
 }
 
+static void test_parse_boolean()
+{
+	lept_value v;
+	v.type = LEPT_NULL;
+	EXPECT_EQ_INT(LEPT_PARSE_OK, lept_parse(&v, "\t\t  false\n"));
+	EXPECT_EQ_INT(LEPT_FALSE, lept_get_type(&v));
+	v.type = LEPT_NULL;
+	EXPECT_EQ_INT(LEPT_PARSE_OK, lept_parse(&v, "\t\t  true\n"));
+	EXPECT_EQ_INT(LEPT_TRUE, lept_get_type(&v));
+}
+
 static void test_parse() {
     test_parse_null();
+	test_parse_boolean();
     test_parse_expect_value();
     test_parse_invalid_value();
     test_parse_root_not_singular();
