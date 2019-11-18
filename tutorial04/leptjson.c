@@ -18,6 +18,8 @@
 #define ISDIGIT1TO9(ch)     ((ch) >= '1' && (ch) <= '9')
 #define PUTC(c, ch)         do { *(char*)lept_context_push(c, sizeof(char)) = (ch); } while(0)
 
+#define FROMSURROGATE(hi,lo) 0x10000 + ((hi) - 0xD800) * 0x400 + ((lo) - 0xDC00)
+
 typedef struct {
     const char* json;
     char* stack;
@@ -92,11 +94,61 @@ static int lept_parse_number(lept_context* c, lept_value* v) {
 
 static const char* lept_parse_hex4(const char* p, unsigned* u) {
     /* \TODO */
+	unsigned tu = 0;
+	int i;
+	char c;
+	for (i = 0; i < 4; ++i)
+	{
+		c = *p++;
+		if (c <= '9'&&c >= '0')
+		{
+			tu *= 16;
+			tu += c - '0';
+		}
+		else if (c <= 'f'&&c >= 'a')
+		{
+			tu *= 16;
+			tu += c - 'a' + 10;
+		}
+		else if (c <= 'F'&&c >= 'A')
+		{
+			tu *= 16;
+			tu += c - 'A' + 10;
+		}
+		else
+		{
+			return NULL;
+		}
+	}
+	*u = tu;
     return p;
 }
 
 static void lept_encode_utf8(lept_context* c, unsigned u) {
     /* \TODO */
+	assert(u <= 0x10ffff);
+	if (!(u >> 7))
+	{
+		PUTC(c, u);
+	}
+	else if (!(u >> 11))
+	{
+		PUTC(c, ((u & 0xfc0) >> 6) + 0xc0);
+		PUTC(c, (u & 0x3f) + 0x80);
+	}
+	else if (!(u >> 16))
+	{
+		PUTC(c, ((u & 0xf000) >> 12) + 0xe0);
+		PUTC(c, ((u & 0xfc0) >> 6) + 0x80);
+		PUTC(c, (u & 0x3f) + 0x80);
+	}
+	else
+	{
+		PUTC(c, ((u & 0x1c0000) >> 18) + 0xf0);
+		PUTC(c, ((u & 0x3f000) >> 12) + 0x80);
+		PUTC(c, ((u & 0xfc0) >> 6) + 0x80);
+		PUTC(c, (u & 0x3f) + 0x80);
+	}
 }
 
 #define STRING_ERROR(ret) do { c->top = head; return ret; } while(0)
@@ -129,7 +181,28 @@ static int lept_parse_string(lept_context* c, lept_value* v) {
                         if (!(p = lept_parse_hex4(p, &u)))
                             STRING_ERROR(LEPT_PARSE_INVALID_UNICODE_HEX);
                         /* \TODO surrogate handling */
-                        lept_encode_utf8(c, u);
+						if (u >= 0xD800 && u <= 0xDBFF)
+						{
+							if (*p++ != '\\' || *p++ != 'u')
+							{
+								STRING_ERROR(LEPT_PARSE_INVALID_UNICODE_SURROGATE);
+							}
+							unsigned low_surrogate_value;
+							if (!(p = lept_parse_hex4(p, &low_surrogate_value)))
+								STRING_ERROR(LEPT_PARSE_INVALID_UNICODE_HEX);
+							if (low_surrogate_value >= 0xDC00 && low_surrogate_value <= 0xDFFF)
+							{
+								lept_encode_utf8(c, FROMSURROGATE(u, low_surrogate_value));
+							}
+							else
+							{
+								STRING_ERROR(LEPT_PARSE_INVALID_UNICODE_SURROGATE);
+							}
+						}
+						else
+						{
+							lept_encode_utf8(c, u);
+						}					
                         break;
                     default:
                         STRING_ERROR(LEPT_PARSE_INVALID_STRING_ESCAPE);
